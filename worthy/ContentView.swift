@@ -511,70 +511,84 @@ struct ContentView: View {
     @State private var shareDataURL: URL? = nil
     @State private var isUnlocked: Bool = true
     @State private var alertError: SimpleError? = nil
+    @State private var page: Int = 0
     
     var body: some View {
-        TabView {
-            // Home
-            NavigationView { HomeView()
-                    .environmentObject(store)
-                    .environmentObject(subStore)
-            }
-            .tabItem { Label("Home", systemImage: "house.fill") }
-            
-            // Assets (existing screen)
-            NavigationView {
-                Group {
-                    if isUnlocked { content } else { lockScreen }
-                }
-                .navigationTitle("Assets")
-                .toolbar {
-                    ToolbarItemGroup(placement: .navigationBarTrailing) {
-                        Button(action: { store.refreshPrices() }) {
-                            if store.isRefreshing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+        ZStack {
+            SpaceBackground()
+                .ignoresSafeArea()
+            TabView(selection: $page) {
+                    // Home
+                    NavigationView {
+                        HomeView()
+                            .environmentObject(store)
+                            .environmentObject(subStore)
+                    }
+                    .tag(0)
+                    
+                    // Assets
+                    NavigationView {
+                        Group {
+                            if isUnlocked { content } else { lockScreen }
                         }
-                        Button(action: { showingSettings = true }) { Image(systemName: "gearshape") }
-                        Button(action: { exportData() }) { Image(systemName: "square.and.arrow.up") }
-                        Button(action: { showingAdd = true }) { Image(systemName: "plus.circle.fill") }
+                        .navigationTitle("Assets")
+                        .toolbar {
+                            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                                Button(action: { store.refreshPrices() }) {
+                                    if store.isRefreshing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                                }
+                                Button(action: { showingSettings = true }) { Image(systemName: "gearshape") }
+                                Button(action: { exportData() }) { Image(systemName: "square.and.arrow.up") }
+                                Button(action: { showingAdd = true }) { Image(systemName: "plus.circle.fill") }
+                            }
+                        }
+                        .sheet(isPresented: $showingAdd) {
+                            AddOrEditHoldingView(holding: nil) { newHolding in
+                                store.add(newHolding)
+                                if newHolding.type == .stock || newHolding.type == .crypto { store.refreshPrices() }
+                                showingAdd = false
+                            }
+                            .environmentObject(store)
+                        }
+                        .sheet(item: $editingHolding) { hold in
+                            AddOrEditHoldingView(holding: hold) { updated in
+                                store.update(updated)
+                                if updated.type == .stock || updated.type == .crypto { store.refreshPrices() }
+                                editingHolding = nil
+                            }
+                            .environmentObject(store)
+                        }
+                        .sheet(isPresented: $showingSettings) { SettingsView().environmentObject(store) }
+                        .sheet(isPresented: $showShare, onDismiss: { shareDataURL = nil }) {
+                            if let url = shareDataURL { ActivityView(activityItems: [url]) } else { Text("Nothing to share") }
+                        }
+                        .onAppear {
+                            authenticateIfNeeded()
+                            if store.needsRefresh(intervalHours: store.refreshHours) { store.refreshPrices() }
+                        }
+                        .onChange(of: store.errorMessage) { _, newValue in if let msg = newValue { alertError = SimpleError(message: msg) } }
+                        .alert(item: $alertError) { err in Alert(title: Text("Error"), message: Text(err.message), dismissButton: .default(Text("OK"))) }
                     }
-                }
-                .sheet(isPresented: $showingAdd) {
-                    AddOrEditHoldingView(holding: nil) { newHolding in
-                        store.add(newHolding)
-                        if newHolding.type == .stock || newHolding.type == .crypto { store.refreshPrices() }
-                        showingAdd = false
+                    .navigationViewStyle(StackNavigationViewStyle())
+                    .tag(1)
+                    
+                    // Subscriptions
+                    NavigationView {
+                        SubscriptionsView()
+                            .environmentObject(subStore)
+                            .environmentObject(store)
                     }
-                    .environmentObject(store)
-                }
-                .sheet(item: $editingHolding) { hold in
-                    AddOrEditHoldingView(holding: hold) { updated in
-                        store.update(updated)
-                        if updated.type == .stock || updated.type == .crypto { store.refreshPrices() }
-                        editingHolding = nil
-                    }
-                    .environmentObject(store)
-                }
-                .sheet(isPresented: $showingSettings) { SettingsView().environmentObject(store) }
-                .sheet(isPresented: $showShare, onDismiss: { shareDataURL = nil }) {
-                    if let url = shareDataURL { ActivityView(activityItems: [url]) } else { Text("Nothing to share") }
-                }
-                .onAppear {
-                    authenticateIfNeeded()
-                    if store.needsRefresh(intervalHours: store.refreshHours) { store.refreshPrices() }
-                }
-                .onChange(of: store.errorMessage) { _, newValue in if let msg = newValue { alertError = SimpleError(message: msg) } }
-                .alert(item: $alertError) { err in Alert(title: Text("Error"), message: Text(err.message), dismissButton: .default(Text("OK"))) }
+                    .tag(2)
             }
-            .navigationViewStyle(StackNavigationViewStyle())
-            .tabItem { Label("Assets", systemImage: "briefcase.fill") }
-            
-            // Subscriptions
-            NavigationView {
-                SubscriptionsView()
-                    .environmentObject(subStore)
-                    .environmentObject(store)
-            }
-            .tabItem { Label("Subscriptions", systemImage: "list.bullet.rectangle.portrait") }
+            .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+            .animation(.spring(response: 0.4, dampingFraction: 0.9), value: page)
         }
+        .safeAreaInset(edge: .bottom) {
+            GlassDock(selection: $page)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+        }
+        .tint(.cyan)
     }
     
     private var content: some View {
@@ -618,7 +632,8 @@ struct ContentView: View {
                 }
             }
         }
-        .listStyle(InsetGroupedListStyle())
+    .listStyle(InsetGroupedListStyle())
+    .scrollBackgroundHiddenCompat()
         .overlay(alignment: .bottom) {
             if !store.hasOnboarded {
                 OnboardingView { store.hasOnboarded = true }
@@ -827,7 +842,8 @@ struct SubscriptionsView: View {
                 }
             }
         }
-        .listStyle(InsetGroupedListStyle())
+    .listStyle(InsetGroupedListStyle())
+    .scrollBackgroundHiddenCompat()
         .navigationTitle("Subscriptions")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -1052,7 +1068,8 @@ struct HomeView: View {
                 .padding(.vertical, 4)
             }
         }
-        .listStyle(InsetGroupedListStyle())
+    .listStyle(InsetGroupedListStyle())
+    .scrollBackgroundHiddenCompat()
         .navigationTitle("Home")
     }
     
@@ -1332,5 +1349,184 @@ enum KeychainHelper {
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         guard status == errSecSuccess, let data = item as? Data else { return nil }
         return data
+    }
+}
+
+// MARK: - Space Theme UI Additions
+
+// Animated, layered space background with gradients, stars and subtle parallax
+struct SpaceBackground: View {
+    @State private var animate = false
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            let maxDim = max(w, h)
+            ZStack {
+                // Deep space gradient, sized to fill
+                AngularGradient(gradient: Gradient(colors: [Color.black, Color(hue: 0.64, saturation: 0.45, brightness: 0.25), Color.black, Color(hue: 0.78, saturation: 0.5, brightness: 0.28), .black]), center: .center)
+                    .opacity(0.85)
+                    .blur(radius: maxDim * 0.12)
+                    .frame(width: w, height: h)
+
+                // Nebula blobs (relative sizing/position)
+                Circle()
+                    .fill(LinearGradient(colors: [Color.purple.opacity(0.35), Color.blue.opacity(0.25)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: maxDim * 0.6, height: maxDim * 0.6)
+                    .offset(x: -w * 0.35, y: -h * 0.35)
+                    .blur(radius: maxDim * 0.08)
+                    .blendMode(.screen)
+                Circle()
+                    .fill(LinearGradient(colors: [Color.cyan.opacity(0.25), Color.mint.opacity(0.25)], startPoint: .top, endPoint: .bottom))
+                    .frame(width: maxDim * 0.65, height: maxDim * 0.65)
+                    .offset(x: w * 0.33, y: h * 0.3)
+                    .blur(radius: maxDim * 0.1)
+                    .blendMode(.screen)
+
+                Starfield(layerCount: 3)
+                    .opacity(0.9)
+
+                // Slow moving aurora sweep
+                RoundedRectangle(cornerRadius: maxDim * 0.35)
+                    .fill(LinearGradient(colors: [Color.white.opacity(0.05), Color.cyan.opacity(0.12), Color.clear], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: maxDim * 1.2, height: max(h * 0.5, 380))
+                    .rotationEffect(.degrees(animate ? 8 : -8))
+                    .offset(x: animate ? -w * 0.15 : w * 0.15, y: -h * 0.45)
+                    .blur(radius: maxDim * 0.05)
+                    .animation(.easeInOut(duration: 10).repeatForever(autoreverses: true), value: animate)
+            }
+            .frame(width: w, height: h)
+            .background(Color.black)
+            .onAppear { animate = true }
+        }
+    }
+}
+
+// MARK: - Compatibility helpers
+extension View {
+    @ViewBuilder
+    func scrollBackgroundHiddenCompat() -> some View {
+        if #available(iOS 16.0, *) {
+            self.scrollContentBackground(.hidden)
+        } else {
+            self
+        }
+    }
+}
+
+struct Starfield: View {
+    let layerCount: Int
+    var body: some View {
+        ZStack {
+            ForEach(0..<layerCount, id: \.self) { i in
+                StarLayer(seed: i + 123, count: 100 + i*40, speed: Double(i+1) * 0.6, scale: 0.6 + Double(i) * 0.2)
+                    .opacity(0.6 + Double(i) * 0.15)
+            }
+        }
+    }
+}
+
+struct StarLayer: View {
+    let seed: Int
+    let count: Int
+    let speed: Double
+    let scale: Double
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            Canvas { context, size in
+                // derive a smooth phase from current time; no state mutation during draw
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let phase = CGFloat(t * speed * 0.65)
+                var rng = SeededRandom(number: UInt64(seed))
+                for _ in 0..<count {
+                    let x = CGFloat(rng.nextDouble()) * size.width
+                    let y = CGFloat(rng.nextDouble()) * size.height
+                    let sparkle = 0.8 + 0.2 * sin((x + y) * 0.01 + phase)
+                    let starSize: CGFloat = 1.8 * scale
+                    let rect = CGRect(x: x - starSize/2, y: y - starSize/2, width: starSize, height: starSize)
+                    context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(sparkle)))
+                }
+            }
+        }
+    }
+}
+
+// Simple deterministic RNG for stable star positions per layer
+struct SeededRandom {
+    private var state: UInt64
+    init(number: UInt64) { self.state = number &* 0x9E3779B97F4A7C15 }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E3779B97F4A7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+        return z ^ (z >> 31)
+    }
+    mutating func nextDouble() -> Double { Double(next()) / Double(UInt64.max) }
+}
+
+// no Symbols needed; stars are drawn directly
+
+// Glass morphism bottom dock with tabs
+struct GlassDock: View {
+    @Binding var selection: Int
+    var body: some View {
+        HStack(spacing: 18) {
+            DockButton(icon: "house.fill", title: "Home", tag: 0, selection: $selection)
+            DockButton(icon: "briefcase.fill", title: "Assets", tag: 1, selection: $selection)
+            DockButton(icon: "list.bullet.rectangle.portrait", title: "Subs", tag: 2, selection: $selection)
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .stroke(LinearGradient(colors: [Color.white.opacity(0.35), Color.white.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.6), radius: 20, x: 0, y: 10)
+    }
+}
+
+struct DockButton: View {
+    let icon: String
+    let title: String
+    let tag: Int
+    @Binding var selection: Int
+    var isSelected: Bool { selection == tag }
+    var body: some View {
+        Button(action: { selection = tag; haptic(.success) }) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.black : Color.white.opacity(0.9))
+                    .frame(width: 24)
+                if isSelected {
+                    Text(title)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(.black)
+                        .padding(.trailing, 6)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, isSelected ? 14 : 10)
+            .background(
+                ZStack {
+                    if isSelected {
+                        LinearGradient(colors: [Color.cyan, Color.mint], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule().fill(.white.opacity(0.25)).blur(radius: 6)
+                                    .blendMode(.softLight)
+                            )
+                            .shadow(color: Color.cyan.opacity(0.5), radius: 12, x: 0, y: 6)
+                    } else {
+                        Color.clear
+                    }
+                }
+            )
+        }
+        .buttonStyle(.plain)
+        .animation(.spring(response: 0.4, dampingFraction: 0.9), value: isSelected)
     }
 }
