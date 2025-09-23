@@ -634,6 +634,7 @@ struct ContentView: View {
         }
     .listStyle(InsetGroupedListStyle())
     .scrollBackgroundHiddenCompat()
+        .listRowBackground(GlassRowBackground())
         .overlay(alignment: .bottom) {
             if !store.hasOnboarded {
                 OnboardingView { store.hasOnboarded = true }
@@ -844,6 +845,7 @@ struct SubscriptionsView: View {
         }
     .listStyle(InsetGroupedListStyle())
     .scrollBackgroundHiddenCompat()
+        .listRowBackground(GlassRowBackground())
         .navigationTitle("Subscriptions")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -1070,6 +1072,7 @@ struct HomeView: View {
         }
     .listStyle(InsetGroupedListStyle())
     .scrollBackgroundHiddenCompat()
+        .listRowBackground(GlassRowBackground())
         .navigationTitle("Home")
     }
     
@@ -1411,6 +1414,36 @@ extension View {
         } else {
             self
         }
+    }
+}
+
+// Gradient-glass background for list rows
+struct GlassRowBackground: View {
+    var body: some View {
+        ZStack {
+            // Base glass
+            Color.clear.background(.thinMaterial)
+            // Color wash (stronger)
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.12),
+                    Color.cyan.opacity(0.20),
+                    Color.purple.opacity(0.14)
+                ],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+            // Specular highlight
+            LinearGradient(colors: [Color.white.opacity(0.16), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
+                .blendMode(.softLight)
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(
+                    LinearGradient(colors: [Color.white.opacity(0.35), Color.white.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                    lineWidth: 1
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
