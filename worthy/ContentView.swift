@@ -11,8 +11,6 @@ import UIKit
 import Security
 import UserNotifications
 
-// MARK: - Models
-
 enum AssetType: String, Codable, CaseIterable, Identifiable {
     case stock, crypto, manual, liability
     var id: String { rawValue }
@@ -512,6 +510,7 @@ struct ContentView: View {
     @State private var isUnlocked: Bool = true
     @State private var alertError: SimpleError? = nil
     @State private var page: Int = 0
+    @State private var didAttemptInitialAuth: Bool = false
     
     var body: some View {
         ZStack {
@@ -524,6 +523,8 @@ struct ContentView: View {
                             .environmentObject(store)
                             .environmentObject(subStore)
                     }
+                    .toolbarBackgroundHiddenCompat()
+                    .background(SpaceBackground().ignoresSafeArea())
                     .tag(0)
                     
                     // Assets
@@ -549,6 +550,7 @@ struct ContentView: View {
                                 showingAdd = false
                             }
                             .environmentObject(store)
+                            .background(SpaceBackground().ignoresSafeArea())
                         }
                         .sheet(item: $editingHolding) { hold in
                             AddOrEditHoldingView(holding: hold) { updated in
@@ -557,19 +559,21 @@ struct ContentView: View {
                                 editingHolding = nil
                             }
                             .environmentObject(store)
+                            .background(SpaceBackground().ignoresSafeArea())
                         }
-                        .sheet(isPresented: $showingSettings) { SettingsView().environmentObject(store) }
+                        .sheet(isPresented: $showingSettings) { SettingsView().environmentObject(store).background(SpaceBackground().ignoresSafeArea()) }
                         .sheet(isPresented: $showShare, onDismiss: { shareDataURL = nil }) {
                             if let url = shareDataURL { ActivityView(activityItems: [url]) } else { Text("Nothing to share") }
                         }
                         .onAppear {
-                            authenticateIfNeeded()
                             if store.needsRefresh(intervalHours: store.refreshHours) { store.refreshPrices() }
                         }
-                        .onChange(of: store.errorMessage) { _, newValue in if let msg = newValue { alertError = SimpleError(message: msg) } }
+                        .onChange(of: store.errorMessage) { newValue in if let msg = newValue { alertError = SimpleError(message: msg) } }
                         .alert(item: $alertError) { err in Alert(title: Text("Error"), message: Text(err.message), dismissButton: .default(Text("OK"))) }
                     }
                     .navigationViewStyle(StackNavigationViewStyle())
+                    .toolbarBackgroundHiddenCompat()
+                    .background(SpaceBackground().ignoresSafeArea())
                     .tag(1)
                     
                     // Subscriptions
@@ -578,10 +582,20 @@ struct ContentView: View {
                             .environmentObject(subStore)
                             .environmentObject(store)
                     }
+                    .toolbarBackgroundHiddenCompat()
+                    .background(SpaceBackground().ignoresSafeArea())
                     .tag(2)
             }
             .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
             .animation(.spring(response: 0.4, dampingFraction: 0.9), value: page)
+            .background(Color.clear)
+
+            // Keep a light starfield overlay above pages so stars are always visible
+            // and don't get affected by the page swipe container's background.
+            Starfield(layerCount: 2)
+                .opacity(0.25)
+                .allowsHitTesting(false)
+                .ignoresSafeArea()
         }
         .safeAreaInset(edge: .bottom) {
             GlassDock(selection: $page)
@@ -589,10 +603,35 @@ struct ContentView: View {
                 .padding(.vertical, 10)
         }
         .tint(.cyan)
+        .onAppear {
+            // Authenticate once when the app opens (if enabled), not on every view/tab change
+            if !didAttemptInitialAuth {
+                didAttemptInitialAuth = true
+                authenticateIfNeeded()
+            }
+            // Make everything transparent so the star background shows through
+            UITableView.appearance().backgroundColor = .clear
+            UITableViewCell.appearance().backgroundColor = .clear
+            UITableViewHeaderFooterView.appearance().tintColor = .clear
+            UITableViewHeaderFooterView.appearance().backgroundColor = .clear
+            
+            // Make navigation bars completely transparent
+            let nav = UINavigationBarAppearance()
+            nav.configureWithTransparentBackground()
+            nav.backgroundColor = .clear
+            nav.shadowColor = .clear
+            UINavigationBar.appearance().standardAppearance = nav
+            UINavigationBar.appearance().scrollEdgeAppearance = nav
+            UINavigationBar.appearance().compactAppearance = nav
+            
+            // Make tab view container transparent
+            UITabBar.appearance().backgroundColor = .clear
+            UIView.appearance(whenContainedInInstancesOf: [UITabBarController.self]).backgroundColor = .clear
+        }
     }
     
     private var content: some View {
-        List {
+    List {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Net Worth")
@@ -606,7 +645,9 @@ struct ContentView: View {
                         .frame(height: 12)
                         .clipShape(Capsule())
                         .padding(.top, 6)
-                }.padding(.vertical, 6)
+                }
+                .padding(.vertical, 6)
+                .animatedAppear(delay: 0.05)
             }
             
             ForEach(AssetType.allCases) { type in
@@ -622,6 +663,7 @@ struct ContentView: View {
                                 HoldingRow(holding: holding, currencySymbol: store.currencySymbol)
                             }
                             .buttonStyle(PlainButtonStyle())
+                            .animatedAppear(delay: 0.08)
                         }
                         .onDelete { offsets in
                             let ids = offsets.map { filtered[$0].id }
@@ -634,7 +676,9 @@ struct ContentView: View {
         }
     .listStyle(InsetGroupedListStyle())
     .scrollBackgroundHiddenCompat()
+    .hideScrollIndicatorsCompat()
         .listRowBackground(GlassRowBackground())
+        .background(Color.clear)
         .overlay(alignment: .bottom) {
             if !store.hasOnboarded {
                 OnboardingView { store.hasOnboarded = true }
@@ -769,7 +813,7 @@ struct SubscriptionsView: View {
     @State private var editing: Subscription? = nil
     
     var body: some View {
-        List {
+    List {
             Section(header: Text("Summary")) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -798,11 +842,13 @@ struct SubscriptionsView: View {
                                 .padding(8)
                                 .background(Color(.secondarySystemBackground))
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .animatedAppear(delay: 0.12)
                             }
                         }
                         .padding(.top, 6)
                     }
                 }
+                .animatedAppear(delay: 0.05)
             }
             
             Section(header: HStack { Image(systemName: "bell"); Text("Notifications") }) {
@@ -838,6 +884,7 @@ struct SubscriptionsView: View {
                             .padding(.vertical, 4)
                         }
                         .buttonStyle(PlainButtonStyle())
+                        .animatedAppear(delay: 0.08)
                     }
                     .onDelete(perform: subStore.delete)
                 }
@@ -845,7 +892,9 @@ struct SubscriptionsView: View {
         }
     .listStyle(InsetGroupedListStyle())
     .scrollBackgroundHiddenCompat()
-        .listRowBackground(GlassRowBackground())
+    .hideScrollIndicatorsCompat()
+    .listRowBackground(GlassRowBackground())
+    .background(Color.clear)
         .navigationTitle("Subscriptions")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -942,7 +991,7 @@ struct AddOrEditSubscriptionView: View {
                         Text("Unspecified").tag("")
                         Text("+ Add new…").tag("__add_new__")
                     }
-                    .onChange(of: paymentMethod) { _, newVal in
+                    .onChange(of: paymentMethod) { newVal in
                         if newVal == "__add_new__" { newMethodText = ""; showAddMethodAlert = true; paymentMethod = "" }
                     }
                 }
@@ -964,6 +1013,10 @@ struct AddOrEditSubscriptionView: View {
             } message: {
                 Text("e.g., Credit Card, Debit, PayPal")
             }
+            .scrollBackgroundHiddenCompat()
+            .hideScrollIndicatorsCompat()
+            .listRowBackground(GlassRowBackground())
+            .background(Color.clear)
         }
     }
     
@@ -1033,6 +1086,7 @@ struct HomeView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.vertical, 6)
+                .animatedAppear(delay: 0.05)
             }
             
             Section(header: Text("Investments Overview")) {
@@ -1048,6 +1102,7 @@ struct HomeView: View {
                         .clipShape(Capsule())
                 }
                 .padding(.vertical, 4)
+                .animatedAppear(delay: 0.1)
             }
             
             Section(header: Text("Subscriptions Overview")) {
@@ -1068,11 +1123,14 @@ struct HomeView: View {
                     }
                 }
                 .padding(.vertical, 4)
+                .animatedAppear(delay: 0.15)
             }
         }
-    .listStyle(InsetGroupedListStyle())
-    .scrollBackgroundHiddenCompat()
+        .listStyle(InsetGroupedListStyle())
+        .scrollBackgroundHiddenCompat()
+        .hideScrollIndicatorsCompat()
         .listRowBackground(GlassRowBackground())
+        .background(Color.clear)
         .navigationTitle("Home")
     }
     
@@ -1134,7 +1192,9 @@ struct AddOrEditHoldingView: View {
     
     var body: some View {
         NavigationView {
-            Form {
+            ZStack {
+                SpaceBackground().ignoresSafeArea()
+                Form {
                 Picker("Type", selection: $type) {
                     ForEach(AssetType.allCases) { t in
                         Label(t.title, systemImage: t.systemImage).tag(t)
@@ -1143,7 +1203,7 @@ struct AddOrEditHoldingView: View {
                 TextField("Name", text: $name)
                 if type == .stock || type == .crypto {
                     TextField(type == .crypto ? "Search crypto (e.g., BTC, ETH)" : "Search symbol or name", text: $searchQuery)
-                        .onChange(of: searchQuery) { _, q in scheduleSearch(q) }
+                        .onChange(of: searchQuery) { q in scheduleSearch(q) }
                     if !suggestions.isEmpty {
                         Section(header: Text("Suggestions")) {
                             ForEach(suggestions) { s in
@@ -1169,6 +1229,11 @@ struct AddOrEditHoldingView: View {
                         .keyboardType(.decimalPad)
                 }
                 TextField("Notes (optional)", text: $notes)
+                }
+                .scrollBackgroundHiddenCompat()
+                .hideScrollIndicatorsCompat()
+                .listRowBackground(GlassRowBackground())
+                .background(Color.clear)
             }
             .navigationTitle(holding == nil ? "Add Asset" : "Edit Asset")
             .toolbar {
@@ -1247,7 +1312,9 @@ struct SettingsView: View {
     
     var body: some View {
         NavigationView {
-            Form {
+            ZStack {
+                SpaceBackground().ignoresSafeArea()
+                Form {
                 Section(header: Text("General")) {
                     Picker("Currency", selection: $currency) {
                         Text("$ USD").tag("$")
@@ -1264,6 +1331,10 @@ struct SettingsView: View {
                 Section(footer: Text("Your data stays on device.")) {
                     Button(role: .destructive) { resetAllData() } label: { Text("Reset/Clear All Data") }
                 }
+                }
+                .scrollBackgroundHiddenCompat()
+                .hideScrollIndicatorsCompat()
+                .listRowBackground(GlassRowBackground())
             }
             .navigationTitle("Settings")
             .toolbar {
@@ -1415,6 +1486,22 @@ extension View {
             self
         }
     }
+    @ViewBuilder
+    func hideScrollIndicatorsCompat() -> some View {
+        if #available(iOS 16.0, *) {
+            self.scrollIndicators(.hidden)
+        } else {
+            self
+        }
+    }
+    @ViewBuilder
+    func toolbarBackgroundHiddenCompat() -> some View {
+        if #available(iOS 16.0, *) {
+            self.toolbarBackground(.hidden, for: .navigationBar)
+        } else {
+            self
+        }
+    }
 }
 
 // Gradient-glass background for list rows
@@ -1444,6 +1531,28 @@ struct GlassRowBackground: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+// Simple appear animation modifier for cascading list/card entrance
+struct AppearAnimation: ViewModifier {
+    var delay: Double = 0
+    var offset: CGFloat = 16
+    @State private var shown = false
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown ? 0 : offset)
+            .onAppear {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.9).delay(delay)) {
+                    shown = true
+                }
+            }
+    }
+}
+extension View {
+    func animatedAppear(delay: Double = 0, offset: CGFloat = 16) -> some View {
+        modifier(AppearAnimation(delay: delay, offset: offset))
     }
 }
 
